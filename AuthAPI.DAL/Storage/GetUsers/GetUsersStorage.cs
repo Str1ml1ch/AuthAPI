@@ -1,5 +1,5 @@
 ﻿using AuthAPI.Core.Models;
-using AuthAPI.DAL.Storage.Filters;
+using AuthAPI.DAL.Specifications.Users;
 using Homework.Ticketing.System.Shared.Models;
 using Microsoft.EntityFrameworkCore;
 
@@ -20,8 +20,9 @@ namespace AuthAPI.DAL.Storage.GetUsers
             string? searchName,
             CancellationToken ct)
         {
-            var query = _context.Users
-                .FilterByName(searchName);
+            var query = _context.Users.AsQueryable();
+            if (!string.IsNullOrWhiteSpace(searchName))
+                query = query.Where(new UserByNameSpecification(searchName).ToExpression());
 
             var totalCount = await query.CountAsync(ct);
 
