@@ -1,4 +1,4 @@
-﻿namespace AuthAPI.Core.Models
+namespace AuthAPI.Core.Models
 {
     public class UserModel
     {
