@@ -19,6 +19,13 @@ namespace AuthAPI
             builder.Services.AddStorage(builder.Configuration.GetConnectionString("DefaultConnection")!)
                 .AddServices();
 
+            builder.Services.AddStackExchangeRedisCache(options =>
+            {
+                options.Configuration = builder.Configuration.GetConnectionString("Redis")
+                    ?? throw new InvalidOperationException("Redis connection string is missing.");
+                options.InstanceName = "AuthAPI:";
+            });
+
             var jwtKey = builder.Configuration["Jwt:Key"]!;
             var jwtIssuer = builder.Configuration["Jwt:Issuer"]!;
             var jwtAudience = builder.Configuration["Jwt:Audience"]!;
