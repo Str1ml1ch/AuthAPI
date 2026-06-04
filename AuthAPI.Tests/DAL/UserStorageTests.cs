@@ -5,18 +5,18 @@ using AuthAPI.DAL.Storage.GetUsers;
 using AuthAPI.DAL.Storage.CreateUser;
 using AuthAPI.DAL.Storage.UpdateUser;
 using AuthAPI.DAL.Storage.RemoveUser;
-using Microsoft.AspNetCore.Identity;
-using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
+using AuthAPI.Tests.DAL.Infrastructure;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 
 namespace AuthAPI.Tests.DAL;
 
 internal static class DbHelper
 {
-    public static AuthDbContext CreateContext()
+    public static AuthDbContext CreateContext(string connectionString)
     {
         var options = new DbContextOptionsBuilder<AuthDbContext>()
-            .UseInMemoryDatabase(Guid.NewGuid().ToString())
+            .UseSqlServer(connectionString)
             .Options;
         return new AuthDbContext(options);
     }
@@ -54,13 +54,31 @@ internal static class DbHelper
     }
 }
 
-public class GetUserByIdStorageTests
+[Collection("SqlServer")]
+public class GetUserByIdStorageTests : IAsyncLifetime
 {
+    private readonly SqlServerContainerFixture _fixture;
+    private AuthDbContext _context = null!;
+    private IDbContextTransaction _transaction = null!;
+
+    public GetUserByIdStorageTests(SqlServerContainerFixture fixture) => _fixture = fixture;
+
+    public async Task InitializeAsync()
+    {
+        _context = DbHelper.CreateContext(_fixture.ConnectionString);
+        _transaction = await _context.Database.BeginTransactionAsync();
+    }
+
+    public async Task DisposeAsync()
+    {
+        await _transaction.RollbackAsync();
+        await _context.DisposeAsync();
+    }
+
     [Fact]
     public async Task GetByIdAsync_ReturnsNull_WhenNotFound()
     {
-        using var ctx = DbHelper.CreateContext();
-        var storage = new GetUserByIdStorage(ctx);
+        var storage = new GetUserByIdStorage(_context);
 
         var result = await storage.GetByIdAsync(Guid.NewGuid(), CancellationToken.None);
 
@@ -70,9 +88,8 @@ public class GetUserByIdStorageTests
     [Fact]
     public async Task GetByIdAsync_ReturnsModel_WhenFound()
     {
-        using var ctx = DbHelper.CreateContext();
-        var user = DbHelper.SeedUser(ctx, "Alice", "Smith");
-        var storage = new GetUserByIdStorage(ctx);
+        var user = DbHelper.SeedUser(_context, "Alice", "Smith");
+        var storage = new GetUserByIdStorage(_context);
 
         var result = await storage.GetByIdAsync(user.Id, CancellationToken.None);
 
@@ -85,8 +102,7 @@ public class GetUserByIdStorageTests
     [Fact]
     public async Task ExistsAsync_ReturnsFalse_WhenNotFound()
     {
-        using var ctx = DbHelper.CreateContext();
-        var storage = new GetUserByIdStorage(ctx);
+        var storage = new GetUserByIdStorage(_context);
 
         var result = await storage.ExistsAsync(Guid.NewGuid(), CancellationToken.None);
 
@@ -96,9 +112,8 @@ public class GetUserByIdStorageTests
     [Fact]
     public async Task ExistsAsync_ReturnsTrue_WhenFound()
     {
-        using var ctx = DbHelper.CreateContext();
-        var user = DbHelper.SeedUser(ctx);
-        var storage = new GetUserByIdStorage(ctx);
+        var user = DbHelper.SeedUser(_context);
+        var storage = new GetUserByIdStorage(_context);
 
         var result = await storage.ExistsAsync(user.Id, CancellationToken.None);
 
@@ -106,16 +121,34 @@ public class GetUserByIdStorageTests
     }
 }
 
-public class GetUsersStorageTests
+[Collection("SqlServer")]
+public class GetUsersStorageTests : IAsyncLifetime
 {
+    private readonly SqlServerContainerFixture _fixture;
+    private AuthDbContext _context = null!;
+    private IDbContextTransaction _transaction = null!;
+
+    public GetUsersStorageTests(SqlServerContainerFixture fixture) => _fixture = fixture;
+
+    public async Task InitializeAsync()
+    {
+        _context = DbHelper.CreateContext(_fixture.ConnectionString);
+        _transaction = await _context.Database.BeginTransactionAsync();
+    }
+
+    public async Task DisposeAsync()
+    {
+        await _transaction.RollbackAsync();
+        await _context.DisposeAsync();
+    }
+
     [Fact]
     public async Task GetAsync_ReturnsAll_WhenNoFilter()
     {
-        using var ctx = DbHelper.CreateContext();
-        DbHelper.SeedUser(ctx, "Alice", "Alpha");
-        DbHelper.SeedUser(ctx, "Bob", "Beta");
-        DbHelper.SeedUser(ctx, "Carol", "Gamma");
-        var storage = new GetUsersStorage(ctx);
+        DbHelper.SeedUser(_context, "Alice", "Alpha");
+        DbHelper.SeedUser(_context, "Bob", "Beta");
+        DbHelper.SeedUser(_context, "Carol", "Gamma");
+        var storage = new GetUsersStorage(_context);
 
         var result = await storage.GetAsync(1, 10, null, CancellationToken.None);
 
@@ -126,11 +159,10 @@ public class GetUsersStorageTests
     [Fact]
     public async Task GetAsync_FiltersByName()
     {
-        using var ctx = DbHelper.CreateContext();
-        DbHelper.SeedUser(ctx, "Alice", "Smith");
-        DbHelper.SeedUser(ctx, "Bob", "Johnson");
-        DbHelper.SeedUser(ctx, "Alice", "Jones");
-        var storage = new GetUsersStorage(ctx);
+        DbHelper.SeedUser(_context, "Alice", "Smith");
+        DbHelper.SeedUser(_context, "Bob", "Johnson");
+        DbHelper.SeedUser(_context, "Alice", "Jones");
+        var storage = new GetUsersStorage(_context);
 
         var result = await storage.GetAsync(1, 10, "Alice", CancellationToken.None);
 
@@ -141,11 +173,10 @@ public class GetUsersStorageTests
     [Fact]
     public async Task GetAsync_FiltersByLastName()
     {
-        using var ctx = DbHelper.CreateContext();
-        DbHelper.SeedUser(ctx, "Alice", "Smith");
-        DbHelper.SeedUser(ctx, "Bob", "Smith");
-        DbHelper.SeedUser(ctx, "Carol", "Jones");
-        var storage = new GetUsersStorage(ctx);
+        DbHelper.SeedUser(_context, "Alice", "Smith");
+        DbHelper.SeedUser(_context, "Bob", "Smith");
+        DbHelper.SeedUser(_context, "Carol", "Jones");
+        var storage = new GetUsersStorage(_context);
 
         var result = await storage.GetAsync(1, 10, "Smith", CancellationToken.None);
 
@@ -156,10 +187,9 @@ public class GetUsersStorageTests
     [Fact]
     public async Task GetAsync_PaginatesCorrectly()
     {
-        using var ctx = DbHelper.CreateContext();
         for (int i = 0; i < 5; i++)
-            DbHelper.SeedUser(ctx, $"User{i:D2}", "Doe");
-        var storage = new GetUsersStorage(ctx);
+            DbHelper.SeedUser(_context, $"User{i:D2}", "Doe");
+        var storage = new GetUsersStorage(_context);
 
         var result = await storage.GetAsync(1, 2, null, CancellationToken.None);
 
@@ -170,9 +200,8 @@ public class GetUsersStorageTests
     [Fact]
     public async Task GetAsync_ReturnsEmpty_WhenNoMatch()
     {
-        using var ctx = DbHelper.CreateContext();
-        DbHelper.SeedUser(ctx, "Alice", "Smith");
-        var storage = new GetUsersStorage(ctx);
+        DbHelper.SeedUser(_context, "Alice", "Smith");
+        var storage = new GetUsersStorage(_context);
 
         var result = await storage.GetAsync(1, 10, "ZZZNOMATCH", CancellationToken.None);
 
@@ -181,35 +210,71 @@ public class GetUsersStorageTests
     }
 }
 
-public class UpdateUserStorageTests
+[Collection("SqlServer")]
+public class UpdateUserStorageTests : IAsyncLifetime
 {
+    private readonly SqlServerContainerFixture _fixture;
+    private AuthDbContext _context = null!;
+    private IDbContextTransaction _transaction = null!;
+
+    public UpdateUserStorageTests(SqlServerContainerFixture fixture) => _fixture = fixture;
+
+    public async Task InitializeAsync()
+    {
+        _context = DbHelper.CreateContext(_fixture.ConnectionString);
+        _transaction = await _context.Database.BeginTransactionAsync();
+    }
+
+    public async Task DisposeAsync()
+    {
+        await _transaction.RollbackAsync();
+        await _context.DisposeAsync();
+    }
+
     [Fact]
     public async Task UpdateAsync_ChangesFirstAndLastName()
     {
-        using var ctx = DbHelper.CreateContext();
-        var user = DbHelper.SeedUser(ctx, "OldFirst", "OldLast");
-        var storage = new UpdateUserStorage(ctx);
+        var user = DbHelper.SeedUser(_context, "OldFirst", "OldLast");
+        var storage = new UpdateUserStorage(_context);
 
         await storage.UpdateAsync(user.Id, "NewFirst", "NewLast", CancellationToken.None);
 
-        var updated = ctx.Users.Find(user.Id)!;
+        var updated = _context.Users.Find(user.Id)!;
         Assert.Equal("NewFirst", updated.FirstName);
         Assert.Equal("NewLast", updated.LastName);
         Assert.NotNull(updated.UpdatedAt);
     }
 }
 
-public class RemoveUserStorageTests
+[Collection("SqlServer")]
+public class RemoveUserStorageTests : IAsyncLifetime
 {
+    private readonly SqlServerContainerFixture _fixture;
+    private AuthDbContext _context = null!;
+    private IDbContextTransaction _transaction = null!;
+
+    public RemoveUserStorageTests(SqlServerContainerFixture fixture) => _fixture = fixture;
+
+    public async Task InitializeAsync()
+    {
+        _context = DbHelper.CreateContext(_fixture.ConnectionString);
+        _transaction = await _context.Database.BeginTransactionAsync();
+    }
+
+    public async Task DisposeAsync()
+    {
+        await _transaction.RollbackAsync();
+        await _context.DisposeAsync();
+    }
+
     [Fact]
     public async Task RemoveByIdAsync_RemovesUser()
     {
-        using var ctx = DbHelper.CreateContext();
-        var user = DbHelper.SeedUser(ctx, "ToDelete", "Bye");
-        var storage = new RemoveUserStorage(ctx);
+        var user = DbHelper.SeedUser(_context, "ToDelete", "Bye");
+        var storage = new RemoveUserStorage(_context);
 
         await storage.RemoveByIdAsync(user.Id, CancellationToken.None);
 
-        Assert.False(ctx.Users.Any(u => u.Id == user.Id));
+        Assert.False(_context.Users.Any(u => u.Id == user.Id));
     }
 }
