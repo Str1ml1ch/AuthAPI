@@ -1,6 +1,7 @@
 using AuthAPI.DAL.Entities;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
@@ -24,7 +25,9 @@ namespace AuthAPI.Controllers
         [HttpPost("login")]
         public async Task<IActionResult> Login([FromBody] LoginRequest request)
         {
-            var user = await _userManager.FindByEmailAsync(request.Email);
+            var user = await _userManager.Users
+                .Include(u => u.User)
+                .FirstOrDefaultAsync(u => u.NormalizedEmail == request.Email.ToUpper());
             if (user == null || !await _userManager.CheckPasswordAsync(user, request.Password))
                 return Unauthorized();
 
@@ -35,6 +38,10 @@ namespace AuthAPI.Controllers
                 new Claim(ClaimTypes.NameIdentifier, user.Id),
                 new Claim(ClaimTypes.Email, user.Email!)
             };
+
+            if (user.User is not null)
+                claims.Add(new Claim(ClaimTypes.Name, $"{user.User.FirstName} {user.User.LastName}"));
+
             claims.AddRange(roles.Select(r => new Claim(ClaimTypes.Role, r)));
 
             var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_configuration["Jwt:Key"]!));
